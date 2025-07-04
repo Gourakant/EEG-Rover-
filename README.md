@@ -1,0 +1,2 @@
+# EEG-Rover-
+**EEG Rover** A brain-controlled vehicle that uses an EEG module to detect attention and meditation levels, converting brainwave signals into motion commands. It combines neuroscience, embedded systems, and robotics to demonstrate hands-free, wireless control using a simple brain-computer interface.
