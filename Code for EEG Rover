@@ -1,0 +1,409 @@
+Code 01: Testing tgam module:
+
+ #include <SoftwareSerial.h>
+
+SoftwareSerial neuroSerial(2, 3); // RX = D2, TX unused
+
+void setup() {
+  Serial.begin(9600);
+  neuroSerial.begin(9600);
+  Serial.println("Listening for raw TGAM bytes...");
+}
+
+void loop() {
+  if (neuroSerial.available()) {
+    byte b = neuroSerial.read();
+    Serial.print(b, HEX);
+    Serial.print(" ");
+  }
+} 
+Expected result: AA AA 20 2 0 83 18 0 0 49 0 0 2F 0 0 20 0 0 1E 0 0 29 0 0 13 0 0 27 0 0 1A 4 0 5 0 26 AA AA 20 2 0 83 18 0 0 49 0
+
+
+
+Code 02: Testing for Attention, Meditation and Poor Signal
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Define pins
+#define NEURO_RX 2
+#define NEURO_TX 3  // Not actually used
+
+// Initialize LCD with common addresses (try both)
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // Default address
+
+// Software Serial for NeuroSky
+SoftwareSerial neuroSerial(NEURO_RX, NEURO_TX);
+
+// Data storage
+int attention = 0;
+int meditation = 0;
+int poorSignal = 200;  // 200 means no signal
+bool lcdAvailable = false;
+
+void setup() {
+  // Start serial debug
+  Serial.begin(115200);
+  while (!Serial);  // Wait for serial port to connect
+  Serial.println(F("\n\nNeuroSky MindWave Monitor - Debug Mode"));
+
+  // Initialize NeuroSky serial
+  neuroSerial.begin(9600);
+  Serial.println(F("NeuroSky serial initialized"));
+
+  // Initialize I2C LCD with auto-detection
+  Wire.begin();
+  Serial.println(F("Initializing I2C LCD..."));
+  
+  // Test LCD at common addresses
+  byte addresses[] = {0x27, 0x3F};
+  for (byte i = 0; i < sizeof(addresses); i++) {
+    Wire.beginTransmission(addresses[i]);
+    if (Wire.endTransmission() == 0) {
+      Serial.print(F("Found LCD at 0x"));
+      Serial.println(addresses[i], HEX);
+      lcd = LiquidCrystal_I2C(addresses[i], 16, 2);
+      lcd.init();
+      lcd.backlight();
+      lcd.clear();
+      lcd.print(F("NeuroSky Ready"));
+      lcdAvailable = true;
+      break;
+    }
+  }
+
+  if (!lcdAvailable) {
+    Serial.println(F("LCD not found! Check connections"));
+    Serial.println(F("Troubleshooting:"));
+    Serial.println(F("1. Verify SDA=A4, SCL=A5"));
+    Serial.println(F("2. Check I2C address (try 0x27 or 0x3F)"));
+    Serial.println(F("3. Ensure contrast potentiometer is adjusted"));
+  }
+
+  Serial.println(F("\nWaiting for NeuroSky data..."));
+  printDebugHeader();
+}
+
+void loop() {
+  static byte lastByte = 0;
+  static byte payload[64];
+  static int payloadIndex = 0;
+  static int payloadLength = 0;
+  static bool syncFound = false;
+
+  while (neuroSerial.available()) {
+    byte currentByte = neuroSerial.read();
+    
+    // Debug raw data
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 1000) {
+      Serial.print(currentByte, HEX);
+      Serial.print(" ");
+      lastPrint = millis();
+    }
+
+    // Sync detection (0xAA 0xAA)
+    if (!syncFound) {
+      if (lastByte == 0xAA && currentByte == 0xAA) {
+        syncFound = true;
+        payloadIndex = 0;
+        Serial.println(F("\n\nSync bytes detected!"));
+      }
+      lastByte = currentByte;
+      continue;
+    }
+
+    // Get payload length
+    if (payloadIndex == 0) {
+      payloadLength = currentByte;
+      Serial.print(F("Payload length: "));
+      Serial.println(payloadLength);
+      
+      if (payloadLength > sizeof(payload)) {
+        Serial.println(F("Invalid length! Resetting..."));
+        syncFound = false;
+        lastByte = 0;
+      }
+      payloadIndex++;
+      continue;
+    }
+
+    // Store payload
+    if (payloadIndex <= payloadLength) {
+      payload[payloadIndex - 1] = currentByte;
+      payloadIndex++;
+      continue;
+    }
+
+    // Verify checksum
+    byte checksum = currentByte;
+    byte sum = 0;
+    for (int i = 0; i < payloadLength; i++) {
+      sum += payload[i];
+    }
+    sum = 255 - sum;
+
+    if (sum == checksum) {
+      Serial.println(F("Valid packet received"));
+      processPayload(payload, payloadLength);
+      updateDisplays();
+    } else {
+      Serial.print(F("Checksum error! Expected: "));
+      Serial.print(sum, HEX);
+      Serial.print(F(" Received: "));
+      Serial.println(checksum, HEX);
+    }
+
+    // Reset for next packet
+    syncFound = false;
+    lastByte = 0;
+  }
+}
+
+void processPayload(byte* payload, int length) {
+  Serial.println(F("\nProcessing payload:"));
+  
+  for (int i = 0; i < length; ) {
+    byte code = payload[i++];
+    Serial.print(F("Code: 0x"));
+    Serial.print(code, HEX);
+
+    // Skip filler byte
+    if (code == 0x55) {
+      Serial.println(F(" (Filler)"));
+      continue;
+    }
+    
+    // Extended code
+    if (code >= 0x80) {
+      byte extLength = payload[i++];
+      Serial.print(F(" Length: "));
+      Serial.println(extLength);
+      i += extLength;  // Skip extended data
+      continue;
+    }
+    
+    // Single byte code
+    byte value = payload[i++];
+    Serial.print(F(" Value: "));
+    Serial.println(value);
+
+    switch (code) {
+      case 0x02: poorSignal = value; break;
+      case 0x04: attention = value; break;
+      case 0x05: meditation = value; break;
+    }
+  }
+}
+
+void updateDisplays() {
+  // Serial Monitor output
+  Serial.println(F("\n=== Current Values ==="));
+  Serial.print(F("Attention: "));
+  Serial.print(attention);
+  Serial.print(F("%  Meditation: "));
+  Serial.print(meditation);
+  Serial.print(F("%  Signal: "));
+  Serial.println(poorSignal == 200 ? "No Signal" : String(poorSignal));
+
+  // LCD output
+  if (lcdAvailable) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("Att:"));
+    lcd.print(attention);
+    lcd.print(F("%"));
+    
+    lcd.setCursor(8, 0);
+    lcd.print(F("Med:"));
+    lcd.print(meditation);
+    lcd.print(F("%"));
+    
+    lcd.setCursor(0, 1);
+    lcd.print(F("Signal: "));
+    lcd.print(poorSignal == 200 ? F("None") : String(poorSignal));
+  }
+}
+
+void printDebugHeader() {
+  Serial.println(F("\nDebug Information:"));
+  Serial.println(F("1. If no data appears, check hardware connections"));
+  Serial.println(F("2. NeuroSky TX should be connected to Arduino D2"));
+  Serial.println(F("3. Expected sync pattern: 0xAA 0xAA"));
+  Serial.println(F("4. Raw data will appear as hex values below\n"));
+}
+
+
+Code 03: Moving the EEG ROVER according to meditation.
+
+#include <SoftwareSerial.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// TGAM pins
+#define NEURO_RX 2
+#define NEURO_TX 3  // Not used
+
+// Motor pins
+#define IN1 6
+#define IN2 7
+#define IN3 8
+#define IN4 9
+#define ENA 5  // PWM for Motor A speed
+#define ENB 10 // PWM for Motor B speed
+
+// LCD setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// TGAM serial
+SoftwareSerial neuroSerial(NEURO_RX, NEURO_TX);
+
+// Variables
+int meditation = 0;
+bool lcdAvailable = false;
+const int threshold = 20;
+
+void setup() {
+  Serial.begin(115200);
+  neuroSerial.begin(9600);
+
+  // Motor pins as outputs
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+
+  // Initialize motors stopped
+  stopMotors();
+
+  // LCD detection
+  Wire.begin();
+  byte addresses[] = {0x27, 0x3F};
+  for (byte i = 0; i < sizeof(addresses); i++) {
+    Wire.beginTransmission(addresses[i]);
+    if (Wire.endTransmission() == 0) {
+      lcd = LiquidCrystal_I2C(addresses[i], 16, 2);
+      lcd.init();
+      lcd.backlight();
+      lcdAvailable = true;
+      break;
+    }
+  }
+
+  if (lcdAvailable) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Meditation Ctrl");
+    lcd.setCursor(0, 1);
+    lcd.print("Waiting...");
+  }
+
+  Serial.println("System ready");
+}
+
+void loop() {
+  static byte lastByte = 0;
+  static byte payload[32];
+  static int payloadIndex = 0;
+  static int payloadLength = 0;
+  static bool syncFound = false;
+
+  while (neuroSerial.available()) {
+    byte currentByte = neuroSerial.read();
+
+    // Sync: 0xAA 0xAA
+    if (!syncFound) {
+      if (lastByte == 0xAA && currentByte == 0xAA) {
+        syncFound = true;
+        payloadIndex = 0;
+      }
+      lastByte = currentByte;
+      continue;
+    }
+
+    if (payloadIndex == 0) {
+      payloadLength = currentByte;
+      if (payloadLength > sizeof(payload)) {
+        syncFound = false;
+        lastByte = 0;
+        continue;
+      }
+      payloadIndex++;
+      continue;
+    }
+
+    if (payloadIndex <= payloadLength) {
+      payload[payloadIndex - 1] = currentByte;
+      payloadIndex++;
+      continue;
+    }
+
+    // Checksum
+    byte checksum = currentByte;
+    byte sum = 0;
+    for (int i = 0; i < payloadLength; i++) {
+      sum += payload[i];
+    }
+    sum = 255 - sum;
+
+    if (sum == checksum) {
+      for (int i = 0; i < payloadLength - 1; i++) {
+        if (payload[i] == 0x05) {
+          meditation = payload[i + 1];
+          Serial.print("Meditation: ");
+          Serial.println(meditation);
+
+          // LCD output
+          if (lcdAvailable) {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Meditation:");
+            lcd.setCursor(0, 1);
+            lcd.print(meditation);
+            lcd.print("%");
+          }
+
+          // Movement logic with PWM speed
+          if (meditation > threshold) {
+            int speed = map(meditation, threshold + 1, 100, 100, 255); 
+            speed = constrain(speed, 100, 255);
+            moveForward(speed);
+          } else {
+            stopMotors();
+          }
+
+          break;
+        }
+      }
+    }
+
+    // Reset
+    syncFound = false;
+    lastByte = 0;
+  }
+}
+
+void moveForward(int speed) {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, speed);
+  analogWrite(ENB, speed);
+  Serial.print("Moving forward at speed: ");
+  Serial.println(speed);
+}
+
+void stopMotors() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  Serial.println("Motors stopped");
+}
+
