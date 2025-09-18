@@ -1,4 +1,4 @@
-Code 01: Testing tgam module:
+# Code 01: Testing tgam module:
 
  #include <SoftwareSerial.h>
 
@@ -21,7 +21,7 @@ Expected result: AA AA 20 2 0 83 18 0 0 49 0 0 2F 0 0 20 0 0 1E 0 0 29 0 0 13 0 
 
 
 
-Code 02: Testing for Attention, Meditation and Poor Signal
+# Code 02: Testing for Attention, Meditation and Poor Signal
 #include <SoftwareSerial.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -235,7 +235,7 @@ void printDebugHeader() {
 }
 
 
-Code 03: Moving the EEG ROVER according to meditation.
+# Code 03: Moving the EEG ROVER according to meditation.
 
 #include <SoftwareSerial.h>
 #include <Wire.h>
@@ -409,8 +409,8 @@ void stopMotors() {
 
 
 
-code 04:
-code 4.1:
+# code 04:
+# code 4.1:
 code for master: #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
@@ -497,7 +497,7 @@ void loop() {
   }
 }
 
-code 4.2:
+# code 4.2:
 Code for slave: #include <SoftwareSerial.h>
 
 // HC-05 Slave on pins 10 (RX), 11 (TX)
